@@ -1,6 +1,8 @@
 #[starknet::contract]
 mod ERC20Token {
-    use openzeppelin_token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
+    use starknet::storage::StoragePointerWriteAccess;
+use starknet::storage::StoragePointerReadAccess;
+use openzeppelin_token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
     use openzeppelin_access::ownable::OwnableComponent;
     use starknet::ContractAddress;
 
@@ -84,7 +86,7 @@ mod ERC20Token {
         self.ownable.assert_only_owner();
 
         // check if the payer has enough tokens
-        assert(self.erc20.balanceOf(payerAddress) >= (computeAmount + royaltyAmount));
+        assert(self.erc20.balanceOf(payerAddress) >= (computeAmount + royaltyAmount), 1);
 
         // transfer the computeAmount to the host
         let treasuryAddress = self.treasury.read();
