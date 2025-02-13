@@ -80,7 +80,7 @@ mod AgentForge {
         wallet: ContractAddress,
         royaltyAddress: ContractAddress,
         computeAmount: u256,
-        royaltAmount: u256,
+        royaltyAmount: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -131,6 +131,7 @@ mod AgentForge {
             // 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
 
             let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
+            erc20_dispatcher.transfer_from(wallet, self.owner.read(), amount);
 
             // how do we get the amount of STRK from the caller?
             // Issue AGTF tokens
@@ -183,15 +184,15 @@ mod AgentForge {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, owner: ContractAddress, strkAddress: ContractAddress) {
+    fn constructor(
+        ref self: ContractState, owner: ContractAddress, stark_address: ContractAddress,
+    ) {
         // set owner
         let _owner = get_caller_address();
         self.owner.write(_owner);
 
         // set initial price
         self.price.write(20);
-        self
-            .strkAddress
-            .write('0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d');
+        self.stark_address.write(stark_address);
     }
 }
