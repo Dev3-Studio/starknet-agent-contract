@@ -21,7 +21,7 @@ pub trait IAgentForge<TContractState> {
     // Emit a "Debit" event showing the deduction of internal balance from `wallet`
     // Emit a "Credit" event showing the increase in balance for treasury address
     // Emit a "Credit" event showing the increase in balance for the royalty address
-    fn redeem(ref self: TContractState, amount: u256);
+    fn redeem(ref self: TContractState);
 
     // Reduces the caller's internal balance mapping by `amount`,
     // Transfers equivalent of STRK tokens to caller's address
@@ -46,7 +46,7 @@ mod AgentForge {
     // Token Price Setter? 
     use core::starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess, StoragePointerWriteAccess};
     use starknet::{ContractAddress, get_caller_address};
-    use openzeppelin::token::erc20;
+    use openzeppelin::token::erc20::interface::{IERC20Camel,IERC20CamelDispatcher};
     use core::starknet::event::EventEmitter;
     use openzeppelin::access::ownable::OwnableComponent;
 
@@ -107,32 +107,21 @@ mod AgentForge {
             return balance;
         }
 
-        fn redeem(ref self: ContractState, amount: u256) {
+        fn redeem(ref self: ContractState) {
             // Add a function to do conversion of AGTF to STRK
             let caller = get_caller_address();
             let wallet_balance = self.balances.read(caller);
-            let redeemamount = convertAGTFtoSTRK(self.price.read(), amount);
-            if wallet_balance < 0 {
-                panic!("Insufficient balance");
-            } else {
-                erc20::ERC20Component::Transfer {
-                    from: self.owner.read(),
-                    to: caller,
-                    value: redeemamount,
-                };
-            }
-            
+            let _redeemamount = convertAGTFtoSTRK(self.get_price(), wallet_balance);
+            let token = IERC20CamelDispatcher { contract_address: caller };
+            token.transferFrom( self.owner(), caller, _redeemamount);
         }
         
         fn credit(ref self: ContractState, wallet: ContractAddress, amount: u256) {
             // Take in their STRK
             // Syscalls? 
             // ERC20?
-            erc20::ERC20Component::Transfer {
-                from: get_caller_address(),
-                to: self.owner.read(),
-                value: amount,
-            };
+            let token = IERC20CamelDispatcher { contract_address: wallet };
+            token.transferFrom( self.owner(), wallet, amount);
             // how do we get the amount of STRK from the caller?
             // Issue AGTF tokens
     
@@ -158,18 +147,20 @@ mod AgentForge {
             self.balances.write(wallet, wallet_balance - computeAmount - royaltyAmount);  
 
             // transfer the computeAmount to the owner
-            erc20::ERC20Component::Transfer {
-                from: wallet, 
-                to: owner, 
-                value:royaltyAmount
-            };
+            let token = IERC20CamelDispatcher { contract_address: wallet };
+            token.transferFrom(  
+                wallet,
+                owner,                
+                computeAmount,
+            );
 
             // transfer the royaltyAmount to the model creator
-            erc20::ERC20Component::Transfer {
-                from: wallet, 
-                to: royaltyAddress, 
-                value:computeAmount
-            };
+            
+            wallet.transferFrom(  
+                wallet,
+                royaltyAddress,                
+                royaltyAmount,
+            );
 
             self.emit(RunAI {
                     wallet,
