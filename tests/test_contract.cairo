@@ -42,7 +42,7 @@ fn test_credit() {
 
     assert(balance == 0, 'Invalid balance');
 
-    contract_factory.credit(contract_factory_address, contract_factory_address, 42);
+    contract_factory.credit(contract_factory_address, 42);
 
     let balance = contract_factory.get_balance(contract_factory_address);
 
@@ -57,7 +57,7 @@ fn test_debit() {
 
     assert(balance == 0, 'Invalid balance');
 
-    contract_factory.credit(contract_factory_address, contract_factory_address, 42);
+    contract_factory.credit(contract_factory_address, 42);
 
     let balance = contract_factory.get_balance(contract_factory_address);
     assert(balance == 42, 'Valid balance');

@@ -2,84 +2,185 @@ use starknet::ContractAddress;
 
 #[starknet::interface]
 pub trait IAgentForge<TContractState> {
-    fn get_balance(self: @TContractState, address: ContractAddress) -> u128;
-    fn credit(ref self: TContractState, owner: ContractAddress, wallet: ContractAddress, amount: u128);
-    fn debit(ref self: TContractState, owner: ContractAddress, wallet: ContractAddress, computeAmount: u128, royaltyAddress: ContractAddress, royaltyAmount: u128);
-    fn set_price(ref self: TContractState, owner: ContractAddress, price: u128);
-    fn get_price(ref self: TContractState) -> u128;
+
+    // Retrieves an address' current internal balance
+    fn get_balance(self: @TContractState, wallet: ContractAddress) -> u256;
+
+    // Transfers `amount` STRK out of the user's wallet and credits the user's internal balance with an equivalent amount according to the fixed conversion rate
+    // STRK transfers to owners address from the caller's address
+    // @param `amount` Amount of STRK to transfer out
+    // Emit a "Credit" event showing the caller's balance change
+    fn credit(ref self: TContractState, wallet: ContractAddress, amount: u256);
+
+    // Reduces `wallet` internal balance by `computeAmount + royaltyAmount`
+    // @param `wallet` Wallet to debit balance from
+    // @param `computeAmount` Amount credited to treasury wallet balance
+    // @param `royaltyAddress` Wallet to receive `royaltyAmount`
+    // @param `royaltyAmount` Amount credited to royalty address
+    // Function MUST only be callable by contract owner: "self.ownable.assert_only_owner();"
+    // Emit a "Debit" event showing the deduction of internal balance from `wallet`
+    // Emit a "Credit" event showing the increase in balance for treasury address
+    // Emit a "Credit" event showing the increase in balance for the royalty address
+    fn redeem(ref self: TContractState, amount: u256);
+
+    // Reduces the caller's internal balance mapping by `amount`,
+    // Transfers equivalent of STRK tokens to caller's address
+    // @param `amount` Amount to reduce caller's internal balance by
+    // Emit a "Debit" event showing the deduction of internal balance from caller's wallet
+    // Function MUST only be callable by contract owner: "self.ownable.assert_only_owner();"
+    fn debit(ref self: TContractState, owner: ContractAddress, wallet: ContractAddress, computeAmount: u256, royaltyAddress: ContractAddress, royaltyAmount: u256);
+
+    // Set the fixed conversion rate between STRK and internal balance mapping
+    // @param `price` Number of internal balance per STRK
+    // Function MUST only be callable by contract owner: "self.ownable.assert_only_owner();"
+    fn set_price(ref self: TContractState, owner: ContractAddress, price: u256);
+
+    // Get the current conversion rate between STRK and internal balance mapping.
+    fn get_price(ref self: TContractState) -> u256;
 }
 
 #[starknet::contract]
 mod AgentForge {
-    use core::starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess, StoragePointerWriteAccess};
-    use starknet::{ContractAddress, get_caller_address};
-    use core::starknet::event::EventEmitter;
-    // TODO: figure out global import, need to call both in contract and on page to use ContractAddress
+    // TODO: 
     // Royalty address?
     // Token Price Setter? 
+    use core::starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess, StoragePointerWriteAccess};
+    use starknet::{ContractAddress, get_caller_address};
+    use openzeppelin::token::erc20;
+    use core::starknet::event::EventEmitter;
+    use openzeppelin::access::ownable::OwnableComponent;
 
+    
     #[storage]
     struct Storage {
-        balances: Map<ContractAddress, u128>,
+        balances: Map<ContractAddress, u256>,
         owner: ContractAddress,
-        price: u128, // Price of AGTF for exmaple: 1 STRK == 20 AGTF 
+        price: u256, // Price of AGTF for exmaple: 1 STRK == 20 AGTF 
+        #[substorage(v0)]
+        ownable: OwnableComponent::Storage,
     }
+
+    component!(path: OwnableComponent, storage: ownable, event: OwnableEvent);
+
+    #[abi(embed_v0)]
+    impl OwnableMixinImpl = OwnableComponent::OwnableMixinImpl<ContractState>;
+    impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
 
     #[derive(Drop, starknet::Event)]
     struct RunAI {
         wallet: ContractAddress,
         royaltyAddress: ContractAddress,
-        computeAmount: u128,
-        royaltyAmount: u128
+        computeAmount: u256,
+        royaltyAmount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct Credit {
+        wallet: ContractAddress, 
+        amount: u256,
     }
 
     #[event]
     #[derive(Drop, starknet::Event)]
     enum Event {
-        RunAI: RunAI
+        #[flat]
+        OwnableEvent: OwnableComponent::Event,
+        RunAI: RunAI,
+        Credit:Credit,
     }
+
+    // pick a better name for this function
+    fn convertSTRKtoAGTF(price: u256, amount: u256) -> u256 {
+        return price * amount;
+    }
+
+    // pick a better name for this function
+    fn convertAGTFtoSTRK(price: u256, amount: u256) -> u256 {
+        return amount/price;
+    }
+
 
     #[abi(embed_v0)]
     impl AgentForge of super::IAgentForge<ContractState> {
-        fn get_balance(self: @ContractState, address: ContractAddress) -> u128 {
-            let balance = self.balances.read(address);
+        fn get_balance(self: @ContractState, wallet: ContractAddress) -> u256 {
+            let balance = self.balances.read(wallet);
             return balance;
         }
 
-        fn credit(ref self: ContractState, owner: ContractAddress, wallet: ContractAddress, amount: u128) {
-            // Add a function to do conversion of STRK to AGTF
+        fn redeem(ref self: ContractState, amount: u256) {
+            // Add a function to do conversion of AGTF to STRK
             let caller = get_caller_address();
-            if caller == self.owner.read() {
-                let wallet_balance = self.balances.read(wallet);
-                self.balances.write(wallet, wallet_balance + amount);    
+            let wallet_balance = self.balances.read(caller);
+            let redeemamount = convertAGTFtoSTRK(self.price.read(), amount);
+            if wallet_balance < 0 {
+                panic!("Insufficient balance");
             } else {
-                panic!("Only AgentForge can credit the wallet");
+                erc20::ERC20Component::Transfer {
+                    from: self.owner.read(),
+                    to: caller,
+                    value: redeemamount,
+                };
             }
             
         }
+        
+        fn credit(ref self: ContractState, wallet: ContractAddress, amount: u256) {
+            // Take in their STRK
+            // Syscalls? 
+            // ERC20?
+            erc20::ERC20Component::Transfer {
+                from: get_caller_address(),
+                to: self.owner.read(),
+                value: amount,
+            };
+            // how do we get the amount of STRK from the caller?
+            // Issue AGTF tokens
+    
+            let agtf_amount = convertSTRKtoAGTF(self.price.read(), amount);
+            let wallet_balance = self.balances.read(wallet);
+            self.balances.write(wallet, wallet_balance + agtf_amount);
+            // TODO: why is this throwing an error? 
+            self.emit(Credit {
+                wallet: wallet,
+                amount: agtf_amount                
+            });        
+        }
 
-        fn debit(ref self: ContractState, owner: ContractAddress, wallet: ContractAddress, computeAmount: u128, royaltyAddress: ContractAddress, royaltyAmount: u128) {
-            //  TODO:   -Royalties to be deducted from the TX for AI 
+        fn debit(ref self: ContractState, owner: ContractAddress, wallet: ContractAddress, computeAmount: u256, royaltyAddress: ContractAddress, royaltyAmount: u256) {
+            // TODO: Royalties to be deducted from the TX for AI 
             // Add a function to do conversion of STRK to AGTF
-            let caller = get_caller_address();
-            if caller == self.owner.read() {
-                let wallet_balance = self.balances.read(wallet);
-                self.balances.write(wallet, wallet_balance - computeAmount - royaltyAmount);  
+            // Redeem AGTF for STRK
+            self.ownable.assert_only_owner();
 
-                //  TODO: Fix event emitter  
-                self.emit(RunAI {
+            let wallet_balance = self.balances.read(wallet);
+
+            // debit user amount 
+            self.balances.write(wallet, wallet_balance - computeAmount - royaltyAmount);  
+
+            // transfer the computeAmount to the owner
+            erc20::ERC20Component::Transfer {
+                from: wallet, 
+                to: owner, 
+                value:royaltyAmount
+            };
+
+            // transfer the royaltyAmount to the model creator
+            erc20::ERC20Component::Transfer {
+                from: wallet, 
+                to: royaltyAddress, 
+                value:computeAmount
+            };
+
+            self.emit(RunAI {
                     wallet,
                     royaltyAddress,
                     computeAmount,
                     royaltyAmount
-                });
-
-            } else {
-                panic!("Only AgentForge can dedit the wallet");
-            }
+            });
         }
 
-        fn set_price(ref self: ContractState, owner: ContractAddress, price: u128) {
+        fn set_price(ref self: ContractState, owner: ContractAddress, price: u256) {
+            self.ownable.assert_only_owner();
             let caller = get_caller_address();
             if caller == self.owner.read() {
                 self.price.write(price);
@@ -88,7 +189,7 @@ mod AgentForge {
             }
         }
 
-        fn get_price(ref self: ContractState) -> u128 {
+        fn get_price(ref self: ContractState) -> u256 {
             return self.price.read();
         }
     }
