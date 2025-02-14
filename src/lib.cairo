@@ -9,7 +9,7 @@ pub trait IAgentForge<TContractState> {
     // an equivalent amount according to the fixed conversion rate STRK transfers to owners address
     // from the caller's address @param `amount` Amount of STRK to transfer out
     // Emit a "Credit" event showing the caller's balance change
-    fn credit(ref self: TContractState, wallet: ContractAddress, amount: u256);
+    fn credit(ref self: TContractState, amount: u256);
 
     // Reduces `wallet` internal balance by `computeAmount + royaltyAmount`
     // @param `wallet` Wallet to debit balance from
@@ -131,11 +131,12 @@ mod AgentForge {
             self.emit(Redeem { wallet: caller, amount: _redeemamount })
         }
 
-        fn credit(ref self: ContractState, wallet: ContractAddress, amount: u256) {
+        fn credit(ref self: ContractState, amount: u256) {
             // Take in their STRK
             // Syscalls?
             // ERC20?
             // 0xc662c410C0ECf747543f5bA90660f6ABeBD9C8c4
+            let wallet = get_caller_address();
 
             let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
             erc20_dispatcher.transfer_from(wallet, self.owner.read(), amount);
