@@ -76,7 +76,7 @@ mod AgentForge {
     impl OwnableInternalImpl = OwnableComponent::InternalImpl<ContractState>;
 
     #[derive(Drop, starknet::Event)]
-    struct RunAI {
+    struct Debit {
         wallet: ContractAddress,
         royaltyAddress: ContractAddress,
         computeAmount: u256,
@@ -100,7 +100,7 @@ mod AgentForge {
     enum Event {
         #[flat]
         OwnableEvent: OwnableComponent::Event,
-        RunAI: RunAI,
+        Debit: Debit,
         Credit: Credit,
         Redeem: Redeem,
     }
@@ -180,7 +180,7 @@ mod AgentForge {
             let royaltyAmountinStark = convertAGTFtoSTRK(self.price.read(), royaltyAmount);
             erc20_dispatcher.transfer_from(wallet, royaltyAddress, royaltyAmountinStark);
 
-            self.emit(RunAI { wallet, royaltyAddress, computeAmount, royaltyAmount });
+            self.emit(Debit { wallet, royaltyAddress, computeAmount, royaltyAmount });
         }
 
         fn set_price(ref self: ContractState, price: u256) {
