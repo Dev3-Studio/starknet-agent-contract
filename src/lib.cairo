@@ -121,6 +121,9 @@ mod AgentForge {
             let caller = get_caller_address();
             let wallet_balance = self.balances.read(caller);
             let _redeemamount = convertAGTFtoSTRK(self.get_price(), wallet_balance);
+
+            let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
+            erc20_dispatcher.transfer_from(self.owner.read(), caller, _redeemamount);
         }
 
         fn credit(ref self: ContractState, wallet: ContractAddress, amount: u256) {
