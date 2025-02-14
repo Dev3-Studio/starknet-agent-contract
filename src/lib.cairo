@@ -39,10 +39,10 @@ pub trait IAgentForge<TContractState> {
     // Set the fixed conversion rate between STRK and internal balance mapping
     // @param `price` Number of internal balance per STRK
     // Function MUST only be callable by contract owner: "self.ownable.assert_only_owner();"
-    fn set_price(ref self: TContractState, owner: ContractAddress, price: u256);
+    fn set_price(ref self: TContractState, price: u256);
 
     // Get the current conversion rate between STRK and internal balance mapping.
-    fn get_price(ref self: TContractState) -> u256;
+    fn get_price(self: @TContractState) -> u256;
 }
 
 #[starknet::contract]
@@ -89,6 +89,12 @@ mod AgentForge {
         amount: u256,
     }
 
+    #[derive(Drop, starknet::Event)]
+    struct Redeem {
+        wallet: ContractAddress,
+        amount: u256,
+    }
+
     #[event]
     #[derive(Drop, starknet::Event)]
     enum Event {
@@ -96,6 +102,7 @@ mod AgentForge {
         OwnableEvent: OwnableComponent::Event,
         RunAI: RunAI,
         Credit: Credit,
+        Redeem: Redeem,
     }
 
     // pick a better name for this function
@@ -124,6 +131,7 @@ mod AgentForge {
 
             let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
             erc20_dispatcher.transfer_from(self.owner.read(), caller, _redeemamount);
+            self.emit(Redeem { wallet: caller, amount: _redeemamount })
         }
 
         fn credit(ref self: ContractState, wallet: ContractAddress, amount: u256) {
@@ -131,7 +139,6 @@ mod AgentForge {
             // Syscalls?
             // ERC20?
             // 0xc662c410C0ECf747543f5bA90660f6ABeBD9C8c4
-            // 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
 
             let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
             erc20_dispatcher.transfer_from(wallet, self.owner.read(), amount);
@@ -158,30 +165,30 @@ mod AgentForge {
             // Add a function to do conversion of STRK to AGTF
             // Redeem AGTF for STRK
             self.ownable.assert_only_owner();
-
             let wallet_balance = self.balances.read(wallet);
 
             // debit user amount
             self.balances.write(wallet, wallet_balance - computeAmount - royaltyAmount);
 
+            let erc20_dispatcher = IERC20Dispatcher { contract_address: self.stark_address.read() };
+
             // transfer the computeAmount to the owner
+            let computeAmountinStark = convertAGTFtoSTRK(self.price.read(), computeAmount);
+            erc20_dispatcher.transfer_from(wallet, self.owner.read(), computeAmountinStark);
 
             // transfer the royaltyAmount to the model creator
+            let royaltyAmountinStark = convertAGTFtoSTRK(self.price.read(), royaltyAmount);
+            erc20_dispatcher.transfer_from(wallet, royaltyAddress, royaltyAmountinStark);
 
             self.emit(RunAI { wallet, royaltyAddress, computeAmount, royaltyAmount });
         }
 
-        fn set_price(ref self: ContractState, owner: ContractAddress, price: u256) {
+        fn set_price(ref self: ContractState, price: u256) {
             self.ownable.assert_only_owner();
-            let caller = get_caller_address();
-            if caller == self.owner.read() {
-                self.price.write(price);
-            } else {
-                panic!("Only AgentForge can set the price");
-            }
+            self.price.write(price);
         }
 
-        fn get_price(ref self: ContractState) -> u256 {
+        fn get_price(self: @ContractState) -> u256 {
             return self.price.read();
         }
     }
@@ -191,11 +198,11 @@ mod AgentForge {
         ref self: ContractState, owner: ContractAddress, stark_address: ContractAddress,
     ) {
         // set owner
-        let _owner = get_caller_address();
-        self.owner.write(_owner);
+        self.owner.write(owner);
 
         // set initial price
         self.price.write(20);
         self.stark_address.write(stark_address);
+        self.ownable.initializer(owner);
     }
 }
