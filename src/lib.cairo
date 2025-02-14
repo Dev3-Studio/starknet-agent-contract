@@ -47,9 +47,6 @@ pub trait IAgentForge<TContractState> {
 
 #[starknet::contract]
 mod AgentForge {
-    // TODO:
-    // Royalty address?
-    // Token Price Setter?
     use core::starknet::storage::{
         Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess,
         StoragePointerWriteAccess,
@@ -149,7 +146,6 @@ mod AgentForge {
             let agtf_amount = convertSTRKtoAGTF(self.price.read(), amount);
             let wallet_balance = self.balances.read(wallet);
             self.balances.write(wallet, wallet_balance + agtf_amount);
-            // TODO: why is this throwing an error?
             self.emit(Credit { wallet: wallet, amount: agtf_amount });
         }
 
@@ -161,8 +157,6 @@ mod AgentForge {
             royaltyAddress: ContractAddress,
             royaltyAmount: u256,
         ) {
-            // TODO: Royalties to be deducted from the TX for AI
-            // Add a function to do conversion of STRK to AGTF
             // Redeem AGTF for STRK
             self.ownable.assert_only_owner();
             let wallet_balance = self.balances.read(wallet);
